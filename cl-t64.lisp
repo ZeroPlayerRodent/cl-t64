@@ -1,11 +1,27 @@
-(defun get-file-contents (filename)
-  (let ((thing (open filename :element-type '(unsigned-byte 8))) (content nil))
-    (setf content (make-array (file-length thing) :fill-pointer (file-length thing) :element-type '(unsigned-byte 8)))
-    (read-sequence content thing)
-    content
-  )
+(defpackage "CL-T64"
+  (:use "COMMON-LISP")
+  (:export "TAPE-RECORD"
+           "FILE-RECORD"
+           "TAPE-IMAGE"
+           "GET-FILE-CONTENTS"
+           "GET-FILE-NAME"
+           "READ-TAPE-RECORD"
+           "READ-FILE-RECORDS"
+           "GET-BINARY-CONTENT"
+           "READ-TAPE-IMAGE"
+           "WRITE-TAPE-IMAGE"
+           "TAPE-RECORD-DETAILS"
+           "FILE-RECORD-DETAILS"
+           "TAPE-IMAGE-DETAILS"
+           "ADD-FILE"
+           "REMOVE-FILE"
+           "NAME-FILE"
+           "MOVE-FILES"
+           "BLANK-TAPE")
 )
+(in-package "CL-T64")
 
+; Tape record class
 (defclass tape-record ()
   (
     (version :initarg :version)
@@ -14,6 +30,7 @@
   )
 )
 
+; File record class
 (defclass file-record ()
   (
     (entry-type :initarg :entry-type)
@@ -25,6 +42,7 @@
   )
 )
 
+; Tape image class
 (defclass tape-image ()
   (
     (tape-record :initarg :tape-record)
@@ -33,6 +51,16 @@
   )
 )
 
+; Returns contents of filename as vector of bytes.
+(defun get-file-contents (filename)
+  (let ((thing (open filename :element-type '(unsigned-byte 8))) (content nil))
+    (setf content (make-array (file-length thing) :fill-pointer (file-length thing) :element-type '(unsigned-byte 8)))
+    (read-sequence content thing)
+    content
+  )
+)
+
+; Returns 16 byte file name from specified list/vector of bytes and offset.
 (defun get-file-name (raw offset)
   (let ((i 0)(result ""))
     (loop
@@ -44,30 +72,7 @@
   )
 )
 
-(defun get-binary-content (filename)
-  (let ((file-records (read-file-records filename))(content (list 'list))(raw (get-file-contents filename)))
-    (let ((i 0)(a 0)(file-size nil)(offset nil)(binary (list 'list)))
-      (loop
-        (when (>= i (length file-records))(return))
-        (setf file-size (- (slot-value (elt file-records i) 'end-address) (slot-value (elt file-records i) 'start-address)))
-        (setf offset (slot-value (elt file-records i) 'offset))
-        (setf a offset)
-        (loop
-          (when (>= a (+ file-size offset))(return))
-          (setf binary (concatenate 'list binary (list (elt raw a))))
-          (incf a)
-        )
-        (incf i)
-        (pop binary)
-        (setf content (concatenate 'list content (list binary)))
-        (setf binary (list 'list))
-      )
-    )
-    (pop content)
-    content
-  )
-)
-
+; Returns tape record from specified image.
 (defun read-tape-record (tape)
   (let (
          (raw (get-file-contents tape))
@@ -80,6 +85,7 @@
   )
 )
 
+; Returns list of file records from specified image.
 (defun read-file-records (tape)
   (let (
          (raw (get-file-contents tape))
@@ -108,6 +114,32 @@
   )
 )
 
+; Returns 2D list containing the binary content of each file.
+(defun get-binary-content (filename)
+  (let ((file-records (read-file-records filename))(content (list 'list))(raw (get-file-contents filename)))
+    (let ((i 0)(a 0)(file-size nil)(offset nil)(binary (list 'list)))
+      (loop
+        (when (>= i (length file-records))(return))
+        (setf file-size (- (slot-value (elt file-records i) 'end-address) (slot-value (elt file-records i) 'start-address)))
+        (setf offset (slot-value (elt file-records i) 'offset))
+        (setf a offset)
+        (loop
+          (when (>= a (+ file-size offset))(return))
+          (setf binary (concatenate 'list binary (list (elt raw a))))
+          (incf a)
+        )
+        (incf i)
+        (pop binary)
+        (setf content (concatenate 'list content (list binary)))
+        (setf binary (list 'list))
+      )
+    )
+    (pop content)
+    content
+  )
+)
+
+; Returns tape image object from specified image.
 (defun read-tape-image (tape)
   (let (
          (raw (get-file-contents tape))
@@ -120,6 +152,7 @@
   )
 )
 
+; Writes tape image to destination as T64 file.
 (defun write-tape-image (tape destination)
   (let ((output (open destination :direction :output :if-exists :supersede :if-does-not-exist :create :element-type '(unsigned-byte 8))))
     (let ((a 0)(o "C64 tape image file"))
@@ -197,6 +230,7 @@
   )
 )
 
+; Prints details about specified tape record.
 (defun tape-record-details (record)
   (format t "T64 VERSION: 0x~x~%" (slot-value record 'version))
   (format t "DIRECTORIES: ~d~%" (slot-value record 'directories))
@@ -204,6 +238,7 @@
   (terpri)
 )
 
+; Prints details about specified file record.
 (defun file-record-details (record)
   (format t "ENTRY TYPE: ~x~%" (slot-value record 'entry-type))
   (format t "FILE TYPE: 0x~x~%" (slot-value record 'file-type))
@@ -214,6 +249,7 @@
   (terpri)
 )
 
+; Prints details about specified tape image.
 (defun tape-image-details (tape)
   (tape-record-details (slot-value tape 'tape-record))
   (let ((i 0)(records (slot-value tape 'file-records)))
@@ -225,7 +261,8 @@
   )
 )
 
-(defun add-file (file tape name)
+; Adds file to tape and returns new tape.
+(defun add-file (file tape name &optional (file-type #x82))
   (let ((the-tape tape) (binary file) (offset nil) (last-record nil))
     (incf (slot-value (slot-value the-tape 'tape-record) 'directories))
     (incf (slot-value (slot-value the-tape 'tape-record) 'used-directories))
@@ -247,7 +284,7 @@
     )
     (setf (slot-value the-tape 'file-records) (concatenate 'list (slot-value the-tape 'file-records)
                                                                  (list (make-instance 'file-record :entry-type 1
-                                                                                             :file-type #x82
+                                                                                             :file-type file-type
                                                                                              :start-address (+ (ash (elt binary 1) 8) (elt binary 0))
                                                                                              :end-address (+ (+ (ash (elt binary 1) 8) (elt binary 0)) (- (length binary) 2))
                                                                                              :offset offset
@@ -257,6 +294,7 @@
   )
 )
 
+; Removes file from tape at specified index and returns new tape.
 (defun remove-file (file-index tape)
   (let ((i 0)(the-tape (blank-tape)))
     (loop
@@ -270,6 +308,7 @@
   )
 )
 
+; Names file at specified index and returns new tape.
 (defun name-file (file-index tape name)
   (let ((the-tape tape))
     (setf (slot-value (elt (slot-value the-tape 'file-records) file-index) 'file-name) name)
@@ -277,6 +316,7 @@
   )
 )
 
+; Swaps location of files at index1 and index2 and returns new tape.
 (defun move-files (index1 index2 tape)
   (let ((i 0)(the-tape (blank-tape)))
     (decf (slot-value (slot-value the-tape 'tape-record) 'directories))
@@ -298,6 +338,7 @@
   )
 )
 
+; Returns new blank tape.
 (defun blank-tape ()
   (let ((tape-record nil) (tape nil))
     (setf tape-record (make-instance 'tape-record :version #x100 :directories 0 :used-directories 0))
